@@ -2,7 +2,7 @@
 
 gaia压力测试工具:
 
-举例: `./gatechain-load-test -home /Users/zhouhaw/.gaiacli -chain-id testnet -p 123456780 localhost:26657 gt11r6ld8avn676gl4cxz8h0v5memsjp8hncuj8vmr`
+举例: `./gaia-load-test -home /Users/zhouhaw/.gaiacli -chain-id testnet -p 123456780 localhost:26657 cosmos11r6ld8avn676gl4cxz8h0v5memsjp8hncuj8vmr`
 
 will output:
 
