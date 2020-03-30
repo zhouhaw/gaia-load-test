@@ -9,9 +9,11 @@ import (
 	context "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	"github.com/cosmos/gaia/app"
+	"github.com/gatechain/gaia-load-test/account"
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/crypto/secp256k1"
 	"runtime"
+	"strconv"
 
 	// it is ok to use math/rand here: we do not need a cryptographically secure random
 	// number generator here and we can run the tests a bit faster
@@ -24,7 +26,6 @@ import (
 
 	util "github.com/cosmos/cosmos-sdk/client/keys"
 	"github.com/cosmos/cosmos-sdk/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 	tmcrypto "github.com/tendermint/tendermint/crypto"
@@ -37,7 +38,7 @@ const (
 	sendTimeout = 10 * time.Second
 	// see https://github.com/tendermint/tendermint/blob/master/rpc/lib/server/handlers.go
 	pingPeriod      = (30 * 9 / 10) * time.Second
-	defaultPassword = "123456780"
+	defaultPassword = "1234567890"
 )
 
 type transacter struct {
@@ -191,14 +192,6 @@ func (t *transacter) sendLoop(connIndex int) {
 					fmt.Println("tx chan < 100!")
 				}
 				tx := <-t.txChan
-				//select {
-				//case x := <-t.txChan:
-				//	tx = x
-				//case x2 := <-t.txChan2:
-				//	tx = x2
-				//case x3 := <-t.txChan3:
-				//	tx = x3
-				//}
 				paramsJSON, err := json.Marshal(map[string]interface{}{"tx": tx}) //txHex
 				if err != nil {
 					fmt.Printf("failed to encode params: %v\n", err)
@@ -251,12 +244,7 @@ func (t *transacter) sendLoop(connIndex int) {
 					}
 				}
 			}()
-			//memRespone, err := t.mempoolClient.NumUnconfirmedTxs()
-			//if err != nil {
-			//	fmt.Println("memepoolclient error", err)
-			//} else {
-			//	fmt.Println("memepool info", "tx count", memRespone.Count, "number", memRespone.Total, "total size", memRespone.TotalBytes)
-			//}
+
 		case <-pingsTicker.C:
 			// go-rpc server closes the connection in the absence of pings
 			c.SetWriteDeadline(time.Now().Add(sendTimeout))
@@ -291,37 +279,31 @@ func connect(host string) (*websocket.Conn, *http.Response, error) {
 }
 
 func (t *transacter) produce(fromStr []string) {
-	count := len(fromStr)
-	var wg = new(sync.WaitGroup)
-	wg.Add(count) // 增加计数值
-	runtime.GOMAXPROCS(4)
-
 	kb, err := util.NewKeyBaseFromHomeFlag()
 	if err != nil {
 		fmt.Println("home dir error ", err)
 		return
 	}
 
+	count := len(fromStr)
+	var wg = new(sync.WaitGroup)
+	wg.Add(count) // 增加计数值
+	runtime.GOMAXPROCS(4)
+	addr, err := types.AccAddressFromBech32(fromStr[0])
+	if err != nil {
+		logger.Error(err.Error())
+	}
+	info, err := kb.GetByAddress(addr)
+
 	for i := 0; i < count; i++ {
-		fromAddr, err := sdk.AccAddressFromBech32(fromStr[i])
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		info, err := kb.GetByAddress(fromAddr)
-		if err != nil {
-			fmt.Println("home dir or address error:", err)
-			return
-		}
 		var priv tmcrypto.PrivKey
-		passphrase := viper.GetString(defaultPassword)
-		priv, err = kb.ExportPrivateKeyObject(info.GetName(), passphrase)
+		priv, err = account.GetPrivateKey(info.GetName())
 		if err != nil {
-			fmt.Println(err)
+			logger.Error(err.Error())
 			return
 		}
 		go func() {
-			time.Sleep(time.Duration(i*100) * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			t.produceOne(info, t.txChan, wg, kb, priv)
 		}()
 	}
@@ -341,6 +323,7 @@ func (t *transacter) produceOne(info keys.Info, res chan []byte, wg *sync.WaitGr
 		fmt.Println("fromaddr err", err)
 		return
 	}
+	//fmt.Println(fromAddr.String())
 	sequenceNumber = account.GetSequence()
 	accountNumber := account.GetAccountNumber()
 
@@ -349,8 +332,9 @@ func (t *transacter) produceOne(info keys.Info, res chan []byte, wg *sync.WaitGr
 	for true {
 		txbyte := t.generateSendTx(kb, info, toAddr, coins, accountNumber, sequenceNumber, priv)
 		//fmt.Printf("%s sequense now: %d %d\n", info.GetAddress(), sequenceNumber, len(txbyte))
-		sequenceNumber++
 		res <- txbyte
+		sequenceNumber++
+
 	}
 	return
 }
@@ -396,16 +380,17 @@ func (t *transacter) generateSendTx(kb keys.Keybase, from keys.Info, to types.Ac
 
 	msg := bank.MsgSend{from.GetAddress(), to, coins}
 
-	fee := auth.NewStdFee(5000000, []types.Coin{types.NewInt64Coin("stake", 1)})
+	fee := auth.NewStdFee(5000000000, []types.Coin{types.NewInt64Coin("stake", 1)})
 
 	cdc := app.MakeCodec()
+	memo := strconv.FormatInt(time.Now().Unix(), 10)
 	stdSignMsg := context.StdSignMsg{
 		ChainID:       viper.GetString(client.FlagChainID),
 		AccountNumber: accountNumber,
 		Sequence:      sequence,
-		Fee:           fee,
-		Msgs:          []types.Msg{msg},
-		Memo:          "tps test",
+		Fee:  fee,
+		Msgs: []types.Msg{msg},
+		Memo: memo,
 	}
 	pubkey := priv.PubKey()
 	sigBytes, err := priv.Sign(stdSignMsg.Bytes())
@@ -415,7 +400,7 @@ func (t *transacter) generateSendTx(kb keys.Keybase, from keys.Info, to types.Ac
 	sig := auth.StdSignature{PubKey: pubkey,
 		Signature: sigBytes}
 
-	signedStdTx := auth.NewStdTx([]types.Msg{msg}, fee, []auth.StdSignature{sig}, "tps test")
+	signedStdTx := auth.NewStdTx([]types.Msg{msg}, fee, []auth.StdSignature{sig}, memo)
 	signedByte, err := cdc.MarshalBinaryLengthPrefixed(signedStdTx)
 	return signedByte
 }

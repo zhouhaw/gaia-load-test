@@ -5,6 +5,7 @@ go 1.12
 require (
 	github.com/cosmos/cosmos-sdk v0.37.8
 	github.com/cosmos/gaia v0.37.8
+	github.com/cosmos/go-bip39 v0.0.0-20180819234021-555e2067c45d
 	github.com/go-kit/kit v0.9.0
 	github.com/gorilla/websocket v1.4.1
 	github.com/pkg/errors v0.8.1

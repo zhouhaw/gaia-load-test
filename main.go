@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/gatechain/gatechain-load-test/account"
+	"github.com/gatechain/gatechain-load-test/internal/flags"
 	"github.com/spf13/viper"
 	"github.com/tendermint/tendermint/libs/cli"
 	"os"
@@ -26,7 +28,7 @@ func main() {
 	var outputFormat, broadcastTxMethod string
 	var home, chainId, passWord string
 
-	flagSet := flag.NewFlagSet("gatechain-load-test", flag.ExitOnError)
+	flagSet := flag.NewFlagSet("gaia-load-test", flag.ExitOnError)
 	flagSet.StringVar(&home, "home", "$HOME/.gaiacli", "directory for config and data")
 	flagSet.IntVar(&connections, "c", 1, "Connections to keep open per endpoint")
 	flagSet.IntVar(&durationInt, "T", 20, "Exit after the specified amount of time in seconds")
@@ -39,13 +41,13 @@ func main() {
 	flagSet.StringVar(&passWord, "p", "1234567890", "the password of account")
 
 	flagSet.Usage = func() {
-		fmt.Println(`gatechain blockchain benchmarking tool.
+		fmt.Println(`gaia blockchain benchmarking tool.
 
 Usage:
-	./gatechain-load-test [-c 1] [-T 10] [-r 1000] [-s 250] [endpoints] [-output-format <plain|json> [-broadcast-tx-method <async|sync|commit>]]
+	./gaia-load-test [-c 1] [-T 10] [-r 1000] [-s 250] [endpoints] [-output-format <plain|json> [-broadcast-tx-method <async|sync|commit>]]
 
 Examples:
-	./gatechain-load-test -home /Users/zhouhaw/.gaiacli -chain-id testing -p 1234567890 
+	./gaia-load-test -home /Users/zhouhaw/.gaiacli -chain-id testing -p 1234567890 
 	localhost:26657 cosmos15khq8csn68qxwju50trsn2zj4n9w5466y9ely3`)
 		fmt.Println("Flags:")
 		flagSet.PrintDefaults()
@@ -87,7 +89,7 @@ Examples:
 	}
 	viper.Set(cli.HomeFlag, home)
 	viper.Set(client.FlagChainID, chainId)
-	viper.Set(defaultPassword, passWord)
+	viper.Set(flags.FlagPassword, passWord)
 
 	var (
 		endpoints     = strings.Split(flagSet.Arg(0), ",")
@@ -186,10 +188,34 @@ func startTransacters(
 	for i, e := range endpoints {
 		t := newTransacter(e, connections, txsRate, txSize, broadcastTxMethod, client, mempoolClient)
 		// prepare tx for test
+
+		// produce different address for test
+		err := account.Init()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		//infos, err := account.List()
+		//if _, exist := account.FindByStr(infos, fromAddr[0]); !exist {
+		//	fmt.Println("validator account not exist in local")
+		//	os.Exit(1)
+		//} else {
+		//	if len(infos) < 4000 {
+		//		infosNew, err := account.CreateBatch(5000)
+		//		if err != nil {
+		//			fmt.Println(infosNew)
+		//			os.Exit(1)
+		//		}
+		//		infos = append(infos, infosNew...)
+		//	}
+		//}
+
 		go t.produce(fromAddr)
 		fmt.Printf("preparing the data set\n")
 		//time.Sleep(10 * time.Second)
-		for len(t.txChan) <= 5000 {
+		for len(t.txChan) <= 2000 {
+			//fmt.Println("sleeping....")
+			fmt.Println("txChan", len(t.txChan))
 			time.Sleep(1 * time.Second)
 		}
 		fmt.Printf("%d prepared\n", len(t.txChan))
